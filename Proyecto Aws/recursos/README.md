@@ -1,1 +1,1 @@
-## **Aqui se sencuentran los archivos .json y .csv de los datos obtenidos por la API**
+## **Aqui se sencuentran los archivos .json obtenidos por la API, así como los archivos .csv **
