@@ -152,9 +152,272 @@ Revisamos el esquema de nuestra nueva tabla creada
 
 Con Glue job transformaremos los datos en nuestro proceso ETL.
 
+Con un cambio de esquema
+
+![image](https://github.com/user-attachments/assets/28f1d6c3-157b-49c6-b23c-d46fd1fce6bd)
+
+También eliminamos valores nulos y duplicados
+
+![image](https://github.com/user-attachments/assets/4657771a-b7c1-4286-8b52-7bf9f40fc03b)
 
 
+Ejecutamos nuestro job
 
+![image](https://github.com/user-attachments/assets/bf47c6ae-1c24-4126-9625-0d244523b0bc)
+
+Finalmente obtenemos nuestro archivo
+
+![image](https://github.com/user-attachments/assets/d0dc43bb-c21b-47fe-b401-9394d2f20b5c)
+
+Este es el script del job
+```python
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+import gs_uuid
+from awsglue.gluetypes import *
+from awsgluedq.transforms import EvaluateDataQuality
+from awsglue.dynamicframe import DynamicFrame
+from awsglue import DynamicFrame
+from pyspark.sql import functions as SqlFuncs
+
+def _find_null_fields(ctx, schema, path, output, nullStringSet, nullIntegerSet, frame):
+    if isinstance(schema, StructType):
+        for field in schema:
+            new_path = path + "." if path != "" else path
+            output = _find_null_fields(ctx, field.dataType, new_path + field.name, output, nullStringSet, nullIntegerSet, frame)
+    elif isinstance(schema, ArrayType):
+        if isinstance(schema.elementType, StructType):
+            output = _find_null_fields(ctx, schema.elementType, path, output, nullStringSet, nullIntegerSet, frame)
+    elif isinstance(schema, NullType):
+        output.append(path)
+    else:
+        x, distinct_set = frame.toDF(), set()
+        for i in x.select(path).distinct().collect():
+            distinct_ = i[path.split('.')[-1]]
+            if isinstance(distinct_, list):
+                distinct_set |= set([item.strip() if isinstance(item, str) else item for item in distinct_])
+            elif isinstance(distinct_, str) :
+                distinct_set.add(distinct_.strip())
+            else:
+                distinct_set.add(distinct_)
+        if isinstance(schema, StringType):
+            if distinct_set.issubset(nullStringSet):
+                output.append(path)
+        elif isinstance(schema, IntegerType) or isinstance(schema, LongType) or isinstance(schema, DoubleType):
+            if distinct_set.issubset(nullIntegerSet):
+                output.append(path)
+    return output
+
+def drop_nulls(glueContext, frame, nullStringSet, nullIntegerSet, transformation_ctx) -> DynamicFrame:
+    nullColumns = _find_null_fields(frame.glue_ctx, frame.schema(), "", [], nullStringSet, nullIntegerSet, frame)
+    return DropFields.apply(frame=frame, paths=nullColumns, transformation_ctx=transformation_ctx)
+
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])
+sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+job.init(args['JOB_NAME'], args)
+
+# Default ruleset used by all target nodes with data quality enabled
+DEFAULT_DATA_QUALITY_RULESET = """
+    Rules = [
+        ColumnCount > 0
+    ]
+"""
+
+# Script generated for node Amazon S3
+AmazonS3_node1738957950633 = glueContext.create_dynamic_frame.from_options(
+    format_options={"quoteChar": "\"", "withHeader": True, "separator": ",", "optimizePerformance": False}, 
+    connection_type="s3", 
+    format="csv", 
+    connection_options={"paths": ["s3://clima-proyecto/transform/datos_clima.csv"], "recurse": True}, 
+    transformation_ctx="AmazonS3_node1738957950633"
+)
+
+# Script generated for node UUID
+UUID_node1738958152033 = AmazonS3_node1738957950633.gs_uuid(colName="id")
+
+# Script generated for node Change Schema
+ChangeSchema_node1738958059224 = ApplyMapping.apply(
+    frame=UUID_node1738958152033, 
+    mappings=[
+        ("year", "string", "year", "string"), 
+        ("date", "string", "date", "date"), 
+        ("precipitation_hours", "string", "precipitacion_hora", "float"), 
+        ("wind_speed_10m_max", "string", "velocidad_viento", "float"), 
+        ("temperature_2m_max", "string", "temperatura_max", "float"), 
+        ("temperature_2m_min", "string", "temperatura_min", "float"), 
+        ("rain_sum", "string", "lluvia_total", "float"), 
+        ("shortwave_radiation_sum", "string", "radiacion_solar", "float")
+    ], 
+    transformation_ctx="ChangeSchema_node1738958059224"
+)
+
+# Script generated for node Drop Duplicates
+DropDuplicates_node1738957989425 =  DynamicFrame.fromDF(
+    ChangeSchema_node1738958059224.toDF().dropDuplicates(), 
+    glueContext, 
+    "DropDuplicates_node1738957989425"
+)
+
+# Script generated for node Drop Null Fields
+DropNullFields_node1738958107033 = drop_nulls(
+    glueContext, 
+    frame=DropDuplicates_node1738957989425, 
+    nullStringSet={}, 
+    nullIntegerSet={}, 
+    transformation_ctx="DropNullFields_node1738958107033"
+)
+
+# Evaluación de calidad de datos
+EvaluateDataQuality().process_rows(
+    frame=DropNullFields_node1738958107033, 
+    ruleset=DEFAULT_DATA_QUALITY_RULESET, 
+    publishing_options={
+        "dataQualityEvaluationContext": "EvaluateDataQuality_node1738957943844", 
+        "enableDataQualityResultsPublishing": True
+    }, 
+    additional_options={"dataQualityResultsPublishing.strategy": "BEST_EFFORT", "observations.scope": "ALL"}
+)
+
+# Convertir a DataFrame, aplicar coalesce(1) y volver a DynamicFrame
+df = DropNullFields_node1738958107033.toDF().coalesce(1)
+DropNullFields_node1738958107033 = DynamicFrame.fromDF(df, glueContext, "DropNullFields_node1738958107033")
+
+# Escritura en S3 con un solo archivo
+AmazonS3_node1738960071504 = glueContext.write_dynamic_frame.from_options(
+    frame=DropNullFields_node1738958107033, 
+    connection_type="s3", 
+    format="csv", 
+    connection_options={"path": "s3://transformados-clima-proyecto", "partitionKeys": []}, 
+    transformation_ctx="AmazonS3_node1738960071504"
+)
+
+job.commit()
+```
+***
+## Análisis de datos e implementacion de modelos.
+
+Realizaremos el análisis de los datos, a continuacion las distribuciones de las variables seleccionadas.
+
+![image](https://github.com/user-attachments/assets/1cc9afe6-2e5c-4e02-aa10-a364d9cbd06e)
+
+Serie de tiempo de temperatura máxima
+
+![image](https://github.com/user-attachments/assets/593d7750-ec34-41da-a722-05f6dc774297)
+
+
+Serie de tiempo de temperatura miníma
+
+![image](https://github.com/user-attachments/assets/3dd9c941-89e9-47ea-9a5d-25fadb7f952e)
+
+
+Matriz de correlación
+Podemos observar que la correalción mas alta se da entre temperatura máxima y radiacion solar, seguido de lluvia por hora y precipitación total. 
+
+![image](https://github.com/user-attachments/assets/883c60aa-f6a7-4881-b5a2-81eb7f5ce339)
+
+Con las graficas de caja podemos observar que la precipitacion total tuvo un mayo acumulamiento en 2021, siendo 2023 un año con pocas lluvias.
+
+![image](https://github.com/user-attachments/assets/78bbdcf7-ce73-4432-bb7d-e13e203a41ba)
+
+
+Para los modelos utilizamos tres siendo: Random Forest, Regresión Logistica y Random Forest Regressor.
+Utilizando el selector de las 3 características mas relevantes con f_regresion:
+```python
+# Definir el número de características que queremos retener
+k = 3  # Por ejemplo, seleccionaremos las 3 características más relevantes
+
+# Crear el selector de características usando f_regression
+selector = SelectKBest(score_func=f_regression, k=k)
+
+# Ajustar el selector a los datos
+X_new = selector.fit_transform(X, y)
+
+# Obtener los nombres de las características seleccionadas
+selected_features = X.columns[selector.get_support()]
+print("Características seleccionadas por SelectKBest:")
+print(selected_features.tolist())
+````
+Obtenemos:
+
+```python
+Características seleccionadas por SelectKBest:
+['precipitacion_hora', 'temperatura_max', 'velocidad_viento']
+```
+Con mutual_info obtenemos los mismos resultados
+
+Para los primeros dos modelos, nuestra variable objetivo tiene que ser una variable categorica, en este caso **"radiacion_solar"*.
+En la carpeta de recursos esta el archivo mas detallado con los pasos para cada modelo aqui solo pondre los resultados.
+
+### Random Forest
+Con las siguientes variables relizamos el modelo.
+```python
+predictora_rf = ["precipitacion_hora", "velocidad_viento", "temperatura_max"]
+objetivo_rf = "radiacion_solar"
+```
+Teniendo las siguientes metricas:
+
+```python
+Accuracy: 0.5466970387243736
+Precision (macro): 0.5476306585224942
+Recall (macro): 0.5509544334975369
+F1-score (macro): 0.5407221197363632
+```
+No tenemos un buen rendimiento del modelo nuestras metricas estan en 50%.
+Podemos observar la matriz de confusión para ver en que variables uvo un mejor rendimiento:
+
+![image](https://github.com/user-attachments/assets/46b3836c-5846-44f7-a8ed-b152f2be3a68)
+
+
+## Regresión Logistica
+
+Metricas:
+
+```python
+=== Regresión Logística ===
+Accuracy:  0.5171
+Precision: 0.4942
+Recall:    0.5171
+F1 Score:  0.4965
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Alta       0.36      0.28      0.32       106
+        Baja       0.53      0.71      0.61       112
+       Media       0.44      0.30      0.36       116
+    Muy Alta       0.65      0.79      0.71       105
+
+    accuracy                           0.52       439
+   macro avg       0.50      0.52      0.50       439
+weighted avg       0.49      0.52      0.50       439
+```
+
+Tampoco tiene un buen rendimiento se queda en 50%
+
+![image](https://github.com/user-attachments/assets/7cdd0dc7-d284-417f-9b7f-b9d70eb98058)
+
+> [!IMPORTANT]
+> Nuestros dos primeros modelos no tuvieron el rendimiento que esperabamos podemos cambiar la variable objetivo esperando mejores resultados.
+
+## Random Forest Reggressor
+
+Las metricas para este modelo son distintas, ya que en este tipo de modelos no estamos haciemndo una clasificacion ni tenemos la necesidad de designar una variable categorica podemos trabajar las variables numericas como tal.
+
+```python
+Mean Squared Error (MSE): 0.010401825034790643
+Mean Absolute Error (MAE): 0.07920955407195589
+R² Score: 0.6188635350761986
+```
+Este modelo tiene un rendimiento del 61.88% una leve mejora en comparacion de los modelos ateriores.
+
+![image](https://github.com/user-attachments/assets/bbc559b4-ad7d-48c7-879d-5190cfb12675)
 
 
 
