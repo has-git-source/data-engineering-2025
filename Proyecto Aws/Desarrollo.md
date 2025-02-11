@@ -322,10 +322,6 @@ Podemos observar que la correalción mas alta se da entre temperatura máxima y 
 
 ![image](https://github.com/user-attachments/assets/883c60aa-f6a7-4881-b5a2-81eb7f5ce339)
 
-Con las graficas de caja podemos observar que la precipitacion total tuvo un mayo acumulamiento en 2021, siendo 2023 un año con pocas lluvias.
-
-![image](https://github.com/user-attachments/assets/78bbdcf7-ce73-4432-bb7d-e13e203a41ba)
-
 
 Para los modelos utilizamos tres siendo: Random Forest, Regresión Logistica y Random Forest Regressor.
 Utilizando el selector de las 3 características mas relevantes con f_regresion:
@@ -358,21 +354,21 @@ En la carpeta de recursos esta el archivo mas detallado con los pasos para cada 
 ### Random Forest
 Con las siguientes variables relizamos el modelo.
 ```python
-predictora_rf = ["precipitacion_hora", "velocidad_viento", "temperatura_max"]
-objetivo_rf = "radiacion_solar"
+predictoras_rf = ["precipitacion_hora", "velocidad_viento", "temperatura_max"]
+objetivo_rf = "radiacion_solar_cat"
 ```
 Teniendo las siguientes metricas:
 
 ```python
-Accuracy: 0.5466970387243736
-Precision (macro): 0.5476306585224942
-Recall (macro): 0.5509544334975369
-F1-score (macro): 0.5407221197363632
+Accuracy: 0.6788154897494305
+Precision (macro): 0.6742429544606195
+Recall (macro): 0.5377115455982756
+F1-score (macro): 0.5807609098944749
 ```
-No tenemos un buen rendimiento del modelo nuestras metricas estan en 50%.
+No tenemos un buen rendimiento del modelo nuestras metricas estan en 67%.
 Podemos observar la matriz de confusión para ver en que variables uvo un mejor rendimiento:
 
-![image](https://github.com/user-attachments/assets/46b3836c-5846-44f7-a8ed-b152f2be3a68)
+![image](https://github.com/user-attachments/assets/6b5b58e0-dfa9-4d98-a4ac-97554f66df90)
 
 
 ## Regresión Logistica
@@ -381,27 +377,28 @@ Metricas:
 
 ```python
 === Regresión Logística ===
-Accuracy:  0.5171
-Precision: 0.4942
-Recall:    0.5171
-F1 Score:  0.4965
+Accuracy:  0.6651
+Precision: 0.6360
+Recall:    0.6651
+F1 Score:  0.6204
 
 Classification Report:
               precision    recall  f1-score   support
 
-        Alta       0.36      0.28      0.32       106
-        Baja       0.53      0.71      0.61       112
-       Media       0.44      0.30      0.36       116
-    Muy Alta       0.65      0.79      0.71       105
+        Alta       0.65      0.89      0.75       238
+        Baja       0.00      0.00      0.00         9
+       Media       0.50      0.13      0.21        76
+    Muy Alta       0.74      0.60      0.66       116
 
-    accuracy                           0.52       439
-   macro avg       0.50      0.52      0.50       439
-weighted avg       0.49      0.52      0.50       439
+    accuracy                           0.67       439
+   macro avg       0.47      0.41      0.41       439
+weighted avg       0.64      0.67      0.62       439
 ```
 
-Tampoco tiene un buen rendimiento se queda en 50%
+Al igual que el anterior su rendimiento se queda en 66%
 
-![image](https://github.com/user-attachments/assets/7cdd0dc7-d284-417f-9b7f-b9d70eb98058)
+![image](https://github.com/user-attachments/assets/329d974a-c647-4f4b-bf04-881240eaef25)
+
 
 > [!IMPORTANT]
 > Nuestros dos primeros modelos no tuvieron el rendimiento que esperabamos podemos cambiar la variable objetivo esperando mejores resultados.
